@@ -41,8 +41,7 @@ async function main() {
     const Marketplace = await ethers.getContractFactory("Marketplace");
     const marketplace = await Marketplace.deploy(
         kycRegistry.address, // kycRegistry
-        deployer.address, // feeCollector
-        250 // platformFee (2.5%)
+        deployer.address // feeCollector
     );
     await marketplace.deployed();
     console.log("Marketplace deployed to:", marketplace.address);
@@ -51,8 +50,7 @@ async function main() {
     console.log("\nDeploying OwnershipRegistry...");
     const OwnershipRegistry = await ethers.getContractFactory("OwnershipRegistry");
     const ownershipRegistry = await OwnershipRegistry.deploy(
-        kycRegistry.address, // kycRegistry
-        deployer.address // admin
+        kycRegistry.address // kycRegistry
     );
     await ownershipRegistry.deployed();
     console.log("OwnershipRegistry deployed to:", ownershipRegistry.address);
@@ -83,25 +81,24 @@ async function main() {
     // Grant roles and permissions
     console.log("\nSetting up roles and permissions...");
     
-    // Grant KYC verifier role to deployer
-    await kycRegistry.grantRole(kycRegistry.KYC_VERIFIER_ROLE(), deployer.address);
-    console.log("Granted KYC_VERIFIER_ROLE to deployer");
+    // Grant KYC verifier role to deployer (already granted in constructor)
+    console.log("✅ Deployer has KYC_VERIFIER_ROLE (granted in constructor)");
 
     // Grant marketplace role to marketplace contract
-    await kycRegistry.grantRole(kycRegistry.MARKETPLACE_ROLE(), marketplace.address);
-    console.log("Granted MARKETPLACE_ROLE to marketplace");
+    await kycRegistry.grantRole(kycRegistry.LISTER_ROLE(), marketplace.address);
+    console.log("✅ Granted LISTER_ROLE to marketplace");
 
     // Grant factory role to property factory
-    await kycRegistry.grantRole(kycRegistry.FACTORY_ROLE(), propertyFactory.address);
-    console.log("Granted FACTORY_ROLE to property factory");
+    await kycRegistry.grantRole(kycRegistry.VERIFIER_ROLE(), propertyFactory.address);
+    console.log("✅ Granted VERIFIER_ROLE to property factory");
 
     // Grant registry role to ownership registry
-    await kycRegistry.grantRole(kycRegistry.REGISTRY_ROLE(), ownershipRegistry.address);
-    console.log("Granted REGISTRY_ROLE to ownership registry");
+    await kycRegistry.grantRole(kycRegistry.VERIFIER_ROLE(), ownershipRegistry.address);
+    console.log("✅ Granted VERIFIER_ROLE to ownership registry");
 
     // Grant governance role to property governance
-    await kycRegistry.grantRole(kycRegistry.GOVERNANCE_ROLE(), propertyGovernance.address);
-    console.log("Granted GOVERNANCE_ROLE to property governance");
+    await kycRegistry.grantRole(kycRegistry.VERIFIER_ROLE(), propertyGovernance.address);
+    console.log("✅ Granted VERIFIER_ROLE to property governance");
 
     // Grant timelock proposer and executor roles to governance
     await timelockController.grantRole(await timelockController.PROPOSER_ROLE(), propertyGovernance.address);

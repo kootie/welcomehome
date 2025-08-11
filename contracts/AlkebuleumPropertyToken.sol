@@ -39,7 +39,7 @@ contract AlkebuleumPropertyToken is
     string public propertyLocation;
     uint256 public propertyValue;
     string public propertyMetadataURI;
-    uint256 public immutable maxTokens;
+    uint256 public maxTokens;
     
     // Alkebuleum-specific fields
     PropertyType public propertyType;

@@ -7,7 +7,7 @@ async function main() {
     // Load deployment info
     const fs = require("fs");
     const network = hre.network.name;
-    const deploymentFile = `deployment-${network}.json`;
+    const deploymentFile = `deployments/${network}.json`;
     
     if (!fs.existsSync(deploymentFile)) {
       console.log(`❌ Deployment file not found: ${deploymentFile}`);
@@ -45,19 +45,18 @@ async function main() {
 
     // Verify Property Factory
     console.log("🏠 Verifying Property Factory...");
-    const factoryAdmin = await propertyFactory.hasRole(await propertyFactory.ADMIN_ROLE(), deployer.address);
-    const factoryCreator = await propertyFactory.hasRole(await propertyFactory.CREATOR_ROLE(), deployer.address);
+    const factoryAdmin = await propertyFactory.hasRole(await propertyFactory.DEFAULT_ADMIN_ROLE(), deployer.address);
+    const factoryCreator = await propertyFactory.hasRole(await propertyFactory.PROPERTY_CREATOR_ROLE(), deployer.address);
     
     console.log(`   Admin Role: ${factoryAdmin ? "✅" : "❌"}`);
     console.log(`   Creator Role: ${factoryCreator ? "✅" : "❌"}`);
     console.log(`   KYC Registry: ${await propertyFactory.kycRegistry()}`);
-    console.log(`   Fee Collector: ${await propertyFactory.feeCollector()}`);
-    console.log(`   Platform Fee: ${await propertyFactory.platformFee()} basis points`);
-    console.log(`   Total Properties: ${await propertyFactory.getTotalProperties()}\n`);
+    console.log(`   Implementation: ${await propertyFactory.implementation()}`);
+    console.log(`   Total Properties: ${await propertyFactory.propertyCount()}\n`);
 
     // Verify Marketplace
     console.log("🛒 Verifying Marketplace...");
-    const marketAdmin = await marketplace.hasRole(await marketplace.ADMIN_ROLE(), deployer.address);
+    const marketAdmin = await marketplace.hasRole(await marketplace.DEFAULT_ADMIN_ROLE(), deployer.address);
     const marketLister = await marketplace.hasRole(await marketplace.LISTER_ROLE(), deployer.address);
     
     console.log(`   Admin Role: ${marketAdmin ? "✅" : "❌"}`);
@@ -69,7 +68,7 @@ async function main() {
 
     // Verify Ownership Registry
     console.log("📊 Verifying Ownership Registry...");
-    const registryAdmin = await ownershipRegistry.hasRole(await ownershipRegistry.ADMIN_ROLE(), deployer.address);
+    const registryAdmin = await ownershipRegistry.hasRole(await ownershipRegistry.DEFAULT_ADMIN_ROLE(), deployer.address);
     const registryRegistrar = await ownershipRegistry.hasRole(await ownershipRegistry.REGISTRAR_ROLE(), deployer.address);
     
     console.log(`   Admin Role: ${registryAdmin ? "✅" : "❌"}`);
@@ -103,7 +102,13 @@ async function main() {
       ethers.utils.parseEther("1000000"),
       ethers.utils.parseEther("0.001"),
       "ipfs://test",
-      expiresAt
+      "123 Test St, Test City",
+      ethers.utils.parseEther("500000"),
+      "TX-TEST-001",
+      "RESIDENTIAL",
+      "ACTIVE",
+      150,
+      "40.7128,-74.0060"
     );
     
     const receipt = await tx.wait();

@@ -14,7 +14,7 @@
     "node": "hardhat node",
     "clean": "hardhat clean",
     "size": "hardhat size-contracts",
-    "verify:sepolia": "hardhat verify --network sepolia",
+    "verify:sepolia": "hardhat run scripts/verify-deployment.js --network sepolia",
     "verify:alkebuleum": "hardhat verify --network alkebuleum",
     "verify:alkebuleum-testnet": "hardhat verify --network alkebuleumTestnet",
     "flatten": "hardhat flatten",
