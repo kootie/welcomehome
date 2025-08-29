@@ -1,4 +1,11 @@
 {
+  "version": 2,
+  "name": "welcomehome-property-platform",
+  "buildCommand": "npm run build",
+  "outputDirectory": "build",
+  "installCommand": "npm ci --only=production",
+  "devCommand": "npm start",
+  "framework": "create-react-app",
   "rewrites": [
     {
       "source": "/(.*)",
@@ -15,5 +22,8 @@
         }
       ]
     }
-  ]
+  ],
+  "env": {
+    "REACT_APP_ENVIRONMENT": "production"
+  }
 }
