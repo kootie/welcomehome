@@ -27,7 +27,7 @@ const Landing: React.FC = () => {
                 email: String(formData.get('email') || ''),
                 password: String(formData.get('password') || ''),
               };
-              const res = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+              const res = await fetch(process.env.REACT_APP_API_BASE_URL + '/auth/login' || '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
               if (res.ok) { window.location.href = '/pre-kyc'; }
             }}>
               <div>
@@ -51,7 +51,7 @@ const Landing: React.FC = () => {
                 first_name: String(formData.get('first_name') || ''),
                 last_name: String(formData.get('last_name') || ''),
               };
-              const res = await fetch('/api/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+              const res = await fetch(process.env.REACT_APP_API_BASE_URL + '/auth/register' || '/api/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
               if (res.ok) { window.location.href = '/pre-kyc'; }
             }}>
               <div>

@@ -11,7 +11,7 @@ const Wallet: React.FC = () => {
 
   async function fetchWallet() {
     if (!email) return;
-    const url = `/api/users/wallet/by-email?email=${encodeURIComponent(email)}`;
+    const url = `${process.env.REACT_APP_API_BASE_URL || '/api'}/users/wallet/by-email?email=${encodeURIComponent(email)}`;
     const res = await fetch(url);
     if (res.ok) {
       const json = await res.json();
@@ -23,7 +23,7 @@ const Wallet: React.FC = () => {
     e.preventDefault();
     setStatus('submitting');
     try {
-      const res = await fetch('/api/payments/deposit', {
+      const res = await fetch(`${process.env.REACT_APP_API_BASE_URL || '/api'}/payments/deposit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, token_symbol: 'USDC', amount, network: 'ALKEBULEUM' })

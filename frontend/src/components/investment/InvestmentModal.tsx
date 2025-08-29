@@ -107,7 +107,7 @@ const InvestmentModal: React.FC<InvestmentModalProps> = ({
       } else {
         // Handle fiat payment through backend
         // This would integrate with payment processors like Stripe
-        const response = await fetch('/api/investments/fiat', {
+        const response = await fetch(`${process.env.REACT_APP_API_BASE_URL || '/api'}/investments/fiat`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

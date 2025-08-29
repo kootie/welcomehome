@@ -12,7 +12,7 @@ const KYC: React.FC = () => {
     e.preventDefault();
     setStatus('submitting');
     try {
-      const res = await fetch('/api/kyc/submit', {
+      const res = await fetch(`${process.env.REACT_APP_API_BASE_URL || '/api'}/kyc/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ wallet_address: wallet, document_type: docType, document_number: docNumber, document_url: docUrl }),
