@@ -1,5 +1,8 @@
 // API Configuration
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
+const isDevelopment = process.env.NODE_ENV === 'development';
+const API_BASE_URL = isDevelopment 
+  ? '/api' // Use proxy in development
+  : (process.env.REACT_APP_API_BASE_URL || process.env.REACT_APP_API_URL + '/api' || 'https://your-backend.herokuapp.com/api');
 
 export const API_ENDPOINTS = {
   // Authentication

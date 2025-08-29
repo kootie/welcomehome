@@ -1,9 +1,4 @@
 {
-  "version": 2,
-  "buildCommand": "npm run build",
-  "outputDirectory": "build",
-  "installCommand": "npm ci",
-  "framework": "create-react-app",
   "rewrites": [
     {
       "source": "/(.*)",
@@ -20,10 +15,5 @@
         }
       ]
     }
-  ],
-  "env": {
-    "REACT_APP_API_URL": "@react_app_api_url",
-    "REACT_APP_API_BASE_URL": "@react_app_api_base_url",
-    "REACT_APP_ENVIRONMENT": "production"
-  }
+  ]
 }
