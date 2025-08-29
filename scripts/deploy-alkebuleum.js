@@ -27,12 +27,31 @@ async function main() {
         // Deploy AlkebuleumPropertyToken implementation
         console.log("\n🏠 Deploying AlkebuleumPropertyToken implementation...");
         const AlkebuleumPropertyToken = await ethers.getContractFactory("AlkebuleumPropertyToken");
+        
+        // Create initial property info
+        const initialPropertyInfo = {
+            name: "Sample Property",
+            description: "Initial property for testing",
+            location: "Alkebuleum City",
+            propertyType: 0, // RESIDENTIAL
+            status: 0, // ACTIVE
+            area: 1000, // 1000 sq meters
+            latitude: 40000000, // 40.0 degrees * 1e6
+            longitude: -74000000, // -74.0 degrees * 1e6
+            valuation: 1000000 * 10**18, // 1M tokens
+            valuationSource: 0, // APPRAISAL
+            lastValuationDate: Math.floor(Date.now() / 1000),
+            propertyContractId: "ALK001",
+            transactionId: "0x0000000000000000000000000000000000000000000000000000000000000000",
+            metadataUri: "ipfs://QmSample"
+        };
+        
         const alkebuleumPropertyTokenImpl = await AlkebuleumPropertyToken.deploy(
             "WelcomeHomeProperty", // name
             "WH", // symbol
             1000000 * 10**18, // maxTokens (1M tokens)
             kycRegistry.address, // kycRegistry
-            deployer.address // admin
+            initialPropertyInfo // propertyInfo
         );
         await alkebuleumPropertyTokenImpl.deployed();
         console.log("✅ AlkebuleumPropertyToken implementation deployed to:", alkebuleumPropertyTokenImpl.address);
@@ -85,9 +104,12 @@ async function main() {
         console.log("\n🗳️ Deploying PropertyGovernance...");
         const PropertyGovernance = await ethers.getContractFactory("PropertyGovernance");
         const propertyGovernance = await PropertyGovernance.deploy(
-            alkebuleumPropertyTokenImpl.address, // propertyToken
-            timelockController.address, // timelock
-            deployer.address // admin
+            alkebuleumPropertyTokenImpl.address, // governanceToken
+            1000 * 10**18, // proposalThreshold (1000 tokens)
+            1, // votingDelay (1 block)
+            50400, // votingPeriod (1 week)
+            4, // quorumPercentage (4%)
+            86400 // timelockDelay (24 hours)
         );
         await propertyGovernance.deployed();
         console.log("✅ PropertyGovernance deployed to:", propertyGovernance.address);

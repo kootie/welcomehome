@@ -33,11 +33,11 @@ const verifySignature = (message, signature, address) => {
 };
 
 // @route   POST /api/auth/register
-// @desc    Register a new user
+// @desc    Register a new user (email/password)
 // @access  Public
 router.post('/register', [
-  body('wallet_address').isEthereumAddress().withMessage('Valid Ethereum address required'),
-  body('email').optional().isEmail().withMessage('Valid email required'),
+  body('email').isEmail().withMessage('Valid email required'),
+  body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
   body('username').optional().isLength({ min: 3 }).withMessage('Username must be at least 3 characters'),
   body('first_name').optional().isLength({ min: 2 }).withMessage('First name must be at least 2 characters'),
   body('last_name').optional().isLength({ min: 2 }).withMessage('Last name must be at least 2 characters'),
@@ -53,21 +53,13 @@ router.post('/register', [
     });
   }
 
-  const {
-    wallet_address,
-    email,
-    username,
-    first_name,
-    last_name,
-    phone,
-    country
-  } = req.body;
+  const { email, password, username, first_name, last_name, phone, country } = req.body;
 
   try {
     // Check if user already exists
     const existingUser = await getRow(
-      'SELECT id FROM users WHERE wallet_address = ? OR email = ? OR username = ?',
-      [wallet_address, email, username]
+      'SELECT id FROM users WHERE email = ? OR username = ?',
+      [email, username]
     );
 
     if (existingUser) {
@@ -77,11 +69,12 @@ router.post('/register', [
       });
     }
 
+    const passwordHash = await bcrypt.hash(password, 12);
     // Create new user
     const result = await runQuery(
-      `INSERT INTO users (wallet_address, email, username, first_name, last_name, phone, country) 
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [wallet_address, email, username, first_name, last_name, phone, country]
+      `INSERT INTO users (wallet_address, email, username, password_hash, first_name, last_name, phone, country) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [null, email, username, passwordHash, first_name, last_name, phone, country]
     );
 
     // Get the created user
@@ -91,9 +84,9 @@ router.post('/register', [
     );
 
     // Generate JWT token
-    const token = generateToken(newUser.id, newUser.wallet_address);
+    const token = generateToken(newUser.id, newUser.wallet_address || null);
 
-    logger.info('User registered successfully:', { userId: newUser.id, walletAddress: wallet_address });
+    logger.info('User registered successfully:', { userId: newUser.id, email: email });
 
     res.status(201).json({
       success: true,
@@ -113,12 +106,11 @@ router.post('/register', [
 }));
 
 // @route   POST /api/auth/login
-// @desc    Authenticate user with wallet signature
+// @desc    Authenticate user with email/password
 // @access  Public
 router.post('/login', [
-  body('wallet_address').isEthereumAddress().withMessage('Valid Ethereum address required'),
-  body('message').notEmpty().withMessage('Message is required'),
-  body('signature').notEmpty().withMessage('Signature is required')
+  body('email').isEmail().withMessage('Valid email required'),
+  body('password').notEmpty().withMessage('Password is required')
 ], asyncHandler(async (req, res) => {
   // Check validation errors
   const errors = validationResult(req);
@@ -129,21 +121,13 @@ router.post('/login', [
     });
   }
 
-  const { wallet_address, message, signature } = req.body;
+  const { email, password } = req.body;
 
   try {
-    // Verify signature
-    if (!verifySignature(message, signature, wallet_address)) {
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid signature'
-      });
-    }
-
-    // Get user
+    // Get user by email
     const user = await getRow(
-      'SELECT id, wallet_address, email, username, first_name, last_name, kyc_status, is_active, created_at FROM users WHERE wallet_address = ?',
-      [wallet_address]
+      'SELECT id, wallet_address, email, username, first_name, last_name, kyc_status, is_active, password_hash, created_at FROM users WHERE email = ?',
+      [email]
     );
 
     if (!user) {
@@ -160,10 +144,16 @@ router.post('/login', [
       });
     }
 
-    // Generate JWT token
-    const token = generateToken(user.id, user.wallet_address);
+    // Validate password
+    const matches = await bcrypt.compare(password, user.password_hash || '');
+    if (!matches) {
+      return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    }
 
-    logger.info('User logged in successfully:', { userId: user.id, walletAddress: wallet_address });
+    // Generate JWT token
+    const token = generateToken(user.id, user.wallet_address || null);
+
+    logger.info('User logged in successfully:', { userId: user.id, walletAddress: user.wallet_address });
 
     res.json({
       success: true,

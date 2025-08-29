@@ -205,6 +205,24 @@ router.put('/verify/:record_id', [
       [newKycStatus, kycRecord.user_id]
     );
 
+    // If approved, auto-create custodial wallet if not present
+    if (verification_status === 'approved') {
+      const existingWallet = await getRow(
+        'SELECT id FROM user_wallets WHERE user_id = ? AND network = ? LIMIT 1',
+        [kycRecord.user_id, 'ALKEBULEUM']
+      );
+      if (!existingWallet) {
+        const { generateEncryptedWalletKeystore } = require('../utils/wallet');
+        const walletPassword = process.env.WALLET_KEY_PASSWORD || 'change-me-strong-password';
+        const { address, keystoreJson } = await generateEncryptedWalletKeystore(walletPassword);
+        await runQuery(
+          'INSERT INTO user_wallets (user_id, network, wallet_address, keystore_json) VALUES (?, ?, ?, ?)',
+          [kycRecord.user_id, 'ALKEBULEUM', address, keystoreJson]
+        );
+        logger.info('Custodial wallet created for verified user', { userId: kycRecord.user_id, address });
+      }
+    }
+
     // Get updated KYC record
     const updatedRecord = await getRow(
       'SELECT * FROM kyc_records WHERE id = ?',

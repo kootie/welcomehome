@@ -34,6 +34,7 @@ async function initializeDatabase() {
           wallet_address TEXT UNIQUE NOT NULL,
           email TEXT UNIQUE,
           username TEXT UNIQUE,
+          password_hash TEXT,
           first_name TEXT,
           last_name TEXT,
           phone TEXT,
@@ -45,6 +46,36 @@ async function initializeDatabase() {
           is_active BOOLEAN DEFAULT 1,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      // User wallets table (assigned custodial wallets for verified users)
+      db.run(`
+        CREATE TABLE IF NOT EXISTS user_wallets (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          network TEXT NOT NULL,
+          wallet_address TEXT UNIQUE NOT NULL,
+          keystore_json TEXT NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (user_id) REFERENCES users (id)
+        )
+      `);
+
+      // Fiat/crypto deposit records
+      db.run(`
+        CREATE TABLE IF NOT EXISTS user_deposits (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          token_symbol TEXT NOT NULL,
+          amount TEXT NOT NULL,
+          tx_hash TEXT,
+          network TEXT NOT NULL,
+          status TEXT DEFAULT 'pending',
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (user_id) REFERENCES users (id)
         )
       `);
 

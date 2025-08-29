@@ -3,8 +3,8 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/proxy/Clones.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
-import "@openzeppelin/contracts/security/Pausable.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./PropertyToken.sol";
 import "./interfaces/IPropertyToken.sol";
 import "./interfaces/IKYCRegistry.sol";
@@ -157,7 +157,7 @@ contract PropertyFactory is AccessControl, Pausable, ReentrancyGuard {
         PropertyToken(tokenAddress).setTokenPrice(tokenPrice);
         
         // Connect to property (if external contract exists)
-        if (transactionID.length > 0) {
+        if (bytes(transactionID).length > 0) {
             PropertyToken(tokenAddress).connectToProperty(address(0), transactionID);
         }
         

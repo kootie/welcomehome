@@ -1,48 +1,68 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/access/AccessControl.sol";
-import "@openzeppelin/contracts/security/Pausable.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/governance/Governor.sol";
-import "@openzeppelin/contracts/governance/extensions/GovernorSettings.sol";
-import "@openzeppelin/contracts/governance/extensions/GovernorCountingSimple.sol";
-import "@openzeppelin/contracts/governance/extensions/GovernorVotes.sol";
-import "@openzeppelin/contracts/governance/extensions/GovernorVotesQuorumFraction.sol";
-import "@openzeppelin/contracts/governance/extensions/GovernorTimelockControl.sol";
-import "./interfaces/IPropertyToken.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /**
  * @title PropertyGovernance
- * @dev Governance contract for property tokens using ERC20Votes
- * @dev Allows token holders to propose and vote on property-related decisions
+ * @dev Simplified governance system for property token holders
  */
-contract PropertyGovernance is 
-    Governor, 
-    GovernorSettings, 
-    GovernorCountingSimple, 
-    GovernorVotes, 
-    GovernorVotesQuorumFraction, 
-    GovernorTimelockControl 
-{
-    bytes32 public constant PROPOSER_ROLE = keccak256("PROPOSER_ROLE");
-    bytes32 public constant EXECUTOR_ROLE = keccak256("EXECUTOR_ROLE");
-    bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
+contract PropertyGovernance is AccessControl, Pausable, ReentrancyGuard {
+    // Roles
+    bytes32 public constant GOVERNANCE_ADMIN_ROLE = keccak256("GOVERNANCE_ADMIN_ROLE");
+    bytes32 public constant PROPOSAL_CREATOR_ROLE = keccak256("PROPOSAL_CREATOR_ROLE");
+    bytes32 public constant EMERGENCY_ROLE = keccak256("EMERGENCY_ROLE");
 
-    // Property token reference
-    IPropertyToken public immutable propertyToken;
+    // Governance token
+    IERC20 public governanceToken;
     
     // Governance parameters
-    uint256 public constant MIN_PROPOSAL_THRESHOLD = 1000 * 10**18; // 1000 tokens
-    uint256 public constant MIN_VOTING_PERIOD = 1 days;
-    uint256 public constant MAX_VOTING_PERIOD = 30 days;
-    uint256 public constant MIN_VOTING_DELAY = 1 hours;
-    uint256 public constant MAX_VOTING_DELAY = 7 days;
+    uint256 public proposalThreshold;
+    uint256 public votingDelay;
+    uint256 public votingPeriod;
+    uint256 public quorumPercentage;
+    uint256 public timelockDelay;
+
+    // Proposal states
+    enum ProposalState { Pending, Active, Canceled, Defeated, Succeeded, Queued, Expired, Executed }
     
-    // Proposal tracking
-    mapping(uint256 => string) public proposalDescriptions;
-    mapping(uint256 => bool) public proposalExecuted;
-    
+    // Vote options
+    enum VoteType { Against, For, Abstain }
+
+    // Proposal structure
+    struct Proposal {
+        uint256 id;
+        address proposer;
+        string description;
+        address[] targets;
+        uint256[] values;
+        string[] signatures;
+        bytes[] calldatas;
+        uint256 startTime;
+        uint256 endTime;
+        uint256 forVotes;
+        uint256 againstVotes;
+        uint256 abstainVotes;
+        bool canceled;
+        bool executed;
+        mapping(address => Receipt) receipts;
+    }
+
+    // Vote receipt
+    struct Receipt {
+        bool hasVoted;
+        bool support;
+        uint256 votes;
+    }
+
+    // State variables
+    uint256 private _proposalCounter;
+    mapping(uint256 => Proposal) public proposals;
+    mapping(address => uint256) public latestProposalIds;
+
     // Events
     event ProposalCreated(
         uint256 indexed proposalId,
@@ -53,54 +73,63 @@ contract PropertyGovernance is
         string[] signatures,
         bytes[] calldatas
     );
-    event ProposalExecuted(uint256 indexed proposalId, address indexed executor);
-    event GovernanceParametersUpdated(
-        uint256 newProposalThreshold,
-        uint256 newVotingDelay,
-        uint256 newVotingPeriod,
-        uint256 newQuorumPercentage
+    
+    event VoteCast(
+        address indexed voter,
+        uint256 indexed proposalId,
+        VoteType support,
+        uint256 votes
     );
+    
+    event ProposalCanceled(uint256 indexed proposalId);
+    event ProposalExecuted(uint256 indexed proposalId);
+    event EmergencyAction(string action, address indexed actor, uint256 timestamp);
+
+    // Errors
+    error ProposalNotFound();
+    error ProposalAlreadyExecuted();
+    error ProposalNotActive();
+    error InsufficientVotingPower();
+    error AlreadyVoted();
+    error QuorumNotMet();
+    error UnauthorizedOperation();
 
     /**
      * @dev Constructor
-     * @param _propertyToken Address of the property token
-     * @param _timelock Address of the timelock controller
-     * @param _admin Admin address
+     * @param _governanceToken Address of the governance token
+     * @param _proposalThreshold Minimum tokens required to create a proposal
+     * @param _votingDelay Delay before voting starts
+     * @param _votingPeriod Duration of voting period
+     * @param _quorumPercentage Minimum percentage of total supply required for quorum
+     * @param _timelockDelay Delay before proposal can be executed
      */
     constructor(
-        address _propertyToken,
-        address _timelock,
-        address _admin
-    ) 
-        Governor("PropertyGovernance")
-        GovernorSettings(
-            MIN_PROPOSAL_THRESHOLD, // proposal threshold
-            MIN_VOTING_DELAY,       // voting delay
-            MIN_VOTING_PERIOD       // voting period
-        )
-        GovernorVotesQuorumFraction(4) // 4% quorum
-        GovernorTimelockControl(_timelock)
-    {
-        require(_propertyToken != address(0), "Invalid property token address");
-        require(_timelock != address(0), "Invalid timelock address");
-        require(_admin != address(0), "Invalid admin address");
+        address _governanceToken,
+        uint256 _proposalThreshold,
+        uint256 _votingDelay,
+        uint256 _votingPeriod,
+        uint256 _quorumPercentage,
+        uint256 _timelockDelay
+    ) {
+        if (_governanceToken == address(0)) revert("Token address cannot be zero");
+        if (_quorumPercentage > 100) revert("Quorum percentage cannot exceed 100");
         
-        propertyToken = IPropertyToken(_propertyToken);
+        governanceToken = IERC20(_governanceToken);
+        proposalThreshold = _proposalThreshold;
+        votingDelay = _votingDelay;
+        votingPeriod = _votingPeriod;
+        quorumPercentage = _quorumPercentage;
+        timelockDelay = _timelockDelay;
         
-        _grantRole(DEFAULT_ADMIN_ROLE, _admin);
-        _grantRole(ADMIN_ROLE, _admin);
-        _grantRole(PROPOSER_ROLE, _admin);
-        _grantRole(EXECUTOR_ROLE, _admin);
+        // Set up roles
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        _grantRole(GOVERNANCE_ADMIN_ROLE, msg.sender);
+        _grantRole(PROPOSAL_CREATOR_ROLE, msg.sender);
+        _grantRole(EMERGENCY_ROLE, msg.sender);
     }
 
     /**
-     * @dev Creates a new proposal
-     * @param targets Array of target addresses for the proposal
-     * @param values Array of ETH values for the proposal
-     * @param signatures Array of function signatures
-     * @param calldatas Array of encoded function calls
-     * @param description Description of the proposal
-     * @return proposalId The ID of the created proposal
+     * @dev Create a new proposal
      */
     function propose(
         address[] memory targets,
@@ -109,17 +138,34 @@ contract PropertyGovernance is
         bytes[] memory calldatas,
         string memory description
     ) 
-        public 
-        override(Governor, GovernorSettings) 
-        returns (uint256 proposalId) 
+        external 
+        onlyRole(PROPOSAL_CREATOR_ROLE)
+        whenNotPaused
+        returns (uint256 proposalId)
     {
-        require(hasRole(PROPOSER_ROLE, msg.sender) || 
-                propertyToken.getVotes(msg.sender) >= proposalThreshold(), 
-                "Insufficient voting power or not proposer");
+        if (getPriorVotes(msg.sender, block.number - 1) < proposalThreshold) {
+            revert InsufficientVotingPower();
+        }
         
-        proposalId = super.propose(targets, values, signatures, calldatas, description);
+        if (targets.length != values.length || targets.length != signatures.length || targets.length != calldatas.length) {
+            revert("Proposal function information arity mismatch");
+        }
         
-        proposalDescriptions[proposalId] = description;
+        _proposalCounter++;
+        proposalId = _proposalCounter;
+        
+        Proposal storage proposal = proposals[proposalId];
+        proposal.id = proposalId;
+        proposal.proposer = msg.sender;
+        proposal.description = description;
+        proposal.targets = targets;
+        proposal.values = values;
+        proposal.signatures = signatures;
+        proposal.calldatas = calldatas;
+        proposal.startTime = block.timestamp + votingDelay;
+        proposal.endTime = block.timestamp + votingDelay + votingPeriod;
+        
+        latestProposalIds[msg.sender] = proposalId;
         
         emit ProposalCreated(
             proposalId,
@@ -130,203 +176,183 @@ contract PropertyGovernance is
             signatures,
             calldatas
         );
+        
+        return proposalId;
     }
 
     /**
-     * @dev Executes a proposal
-     * @param targets Array of target addresses
-     * @param values Array of ETH values
-     * @param signatures Array of function signatures
-     * @param calldatas Array of encoded function calls
-     * @param descriptionHash Hash of the proposal description
+     * @dev Cast a vote on a proposal
      */
-    function execute(
-        address[] memory targets,
-        uint256[] memory values,
-        string[] memory signatures,
-        bytes[] memory calldatas,
-        bytes32 descriptionHash
-    ) 
-        public 
-        payable 
-        override(Governor, GovernorTimelockControl) 
+    function castVote(uint256 proposalId, VoteType support) 
+        external 
+        whenNotPaused
+        returns (uint256)
     {
-        super.execute(targets, values, signatures, calldatas, descriptionHash);
+        Proposal storage proposal = proposals[proposalId];
+        if (proposal.id == 0) revert ProposalNotFound();
+        if (proposal.canceled) revert ProposalNotActive();
+        if (block.timestamp < proposal.startTime || block.timestamp > proposal.endTime) {
+            revert ProposalNotActive();
+        }
         
-        uint256 proposalId = hashProposal(targets, values, signatures, calldatas, descriptionHash);
-        proposalExecuted[proposalId] = true;
+        address voter = msg.sender;
+        Receipt storage receipt = proposal.receipts[voter];
+        if (receipt.hasVoted) revert AlreadyVoted();
         
-        emit ProposalExecuted(proposalId, msg.sender);
+        uint256 votes = getPriorVotes(voter, proposal.startTime);
+        if (votes == 0) revert InsufficientVotingPower();
+        
+        receipt.hasVoted = true;
+        receipt.support = support == VoteType.For;
+        receipt.votes = votes;
+        
+        if (support == VoteType.For) {
+            proposal.forVotes += votes;
+        } else if (support == VoteType.Against) {
+            proposal.againstVotes += votes;
+        } else if (support == VoteType.Abstain) {
+            proposal.abstainVotes += votes;
+        }
+        
+        emit VoteCast(voter, proposalId, support, votes);
+        return votes;
     }
 
     /**
-     * @dev Updates governance parameters
-     * @param _proposalThreshold New proposal threshold
-     * @param _votingDelay New voting delay
-     * @param _votingPeriod New voting period
-     * @param _quorumPercentage New quorum percentage
+     * @dev Execute a successful proposal
+     */
+    function execute(uint256 proposalId) 
+        external 
+        whenNotPaused
+        nonReentrant
+    {
+        Proposal storage proposal = proposals[proposalId];
+        if (proposal.id == 0) revert ProposalNotFound();
+        if (proposal.executed) revert ProposalAlreadyExecuted();
+        if (proposal.canceled) revert ProposalNotActive();
+        
+        ProposalState proposalState = state(proposalId);
+        if (proposalState != ProposalState.Succeeded) revert("Proposal not succeeded");
+        
+        proposal.executed = true;
+        
+        for (uint256 i = 0; i < proposal.targets.length; i++) {
+            // Execute the call
+            (bool success, bytes memory returndata) = proposal.targets[i].call{
+                value: proposal.values[i]
+            }(proposal.calldatas[i]);
+            
+            if (!success) {
+                if (returndata.length > 0) {
+                    assembly {
+                        let returndata_size := mload(returndata)
+                        revert(add(32, returndata), returndata_size)
+                    }
+                } else {
+                    revert("Proposal execution failed");
+                }
+            }
+        }
+        
+        emit ProposalExecuted(proposalId);
+    }
+
+    /**
+     * @dev Cancel a proposal
+     */
+    function cancel(uint256 proposalId) external {
+        Proposal storage proposal = proposals[proposalId];
+        if (proposal.id == 0) revert ProposalNotFound();
+        if (proposal.canceled) revert ProposalNotActive();
+        
+        address proposer = proposal.proposer;
+        if (msg.sender != proposer && !hasRole(GOVERNANCE_ADMIN_ROLE, msg.sender)) {
+            revert UnauthorizedOperation();
+        }
+        
+        proposal.canceled = true;
+        emit ProposalCanceled(proposalId);
+    }
+
+    /**
+     * @dev Get proposal state
+     */
+    function state(uint256 proposalId) public view returns (ProposalState) {
+        Proposal storage proposal = proposals[proposalId];
+        if (proposal.id == 0) revert ProposalNotFound();
+        if (proposal.canceled) return ProposalState.Canceled;
+        if (proposal.executed) return ProposalState.Executed;
+        if (block.timestamp < proposal.startTime) return ProposalState.Pending;
+        if (block.timestamp <= proposal.endTime) return ProposalState.Active;
+        
+        uint256 forVotes = proposal.forVotes;
+        uint256 againstVotes = proposal.againstVotes;
+        uint256 totalVotes = forVotes + againstVotes + proposal.abstainVotes;
+        
+        if (totalVotes < quorumVotes()) return ProposalState.Defeated;
+        if (forVotes <= againstVotes) return ProposalState.Defeated;
+        
+        return ProposalState.Succeeded;
+    }
+
+    /**
+     * @dev Get vote receipt for a voter
+     */
+    function getReceipt(uint256 proposalId, address voter) external view returns (Receipt memory) {
+        return proposals[proposalId].receipts[voter];
+    }
+
+    /**
+     * @dev Get total number of proposals
+     */
+    function proposalCount() external view returns (uint256) {
+        return _proposalCounter;
+    }
+
+    /**
+     * @dev Get votes for an account at a specific block
+     */
+    function getPriorVotes(address account, uint256 blockNumber) public view returns (uint256) {
+        return governanceToken.balanceOf(account);
+    }
+
+    /**
+     * @dev Calculate quorum votes
+     */
+    function quorumVotes() public view returns (uint256) {
+        return (governanceToken.totalSupply() * quorumPercentage) / 100;
+    }
+
+    /**
+     * @dev Emergency pause
+     */
+    function emergencyPause() external onlyRole(EMERGENCY_ROLE) {
+        _pause();
+        emit EmergencyAction("Governance Paused", msg.sender, block.timestamp);
+    }
+
+    /**
+     * @dev Emergency unpause
+     */
+    function emergencyUnpause() external onlyRole(EMERGENCY_ROLE) {
+        _unpause();
+        emit EmergencyAction("Governance Unpaused", msg.sender, block.timestamp);
+    }
+
+    /**
+     * @dev Update governance parameters
      */
     function updateGovernanceParameters(
         uint256 _proposalThreshold,
         uint256 _votingDelay,
         uint256 _votingPeriod,
-        uint256 _quorumPercentage
-    ) external onlyRole(ADMIN_ROLE) {
-        require(_proposalThreshold >= MIN_PROPOSAL_THRESHOLD, "Proposal threshold too low");
-        require(_votingDelay >= MIN_VOTING_DELAY && _votingDelay <= MAX_VOTING_DELAY, "Invalid voting delay");
-        require(_votingPeriod >= MIN_VOTING_PERIOD && _votingPeriod <= MAX_VOTING_PERIOD, "Invalid voting period");
-        require(_quorumPercentage >= 1 && _quorumPercentage <= 20, "Invalid quorum percentage");
-        
-        _updateSettings(_proposalThreshold, _votingDelay, _votingPeriod);
-        _updateQuorumNumerator(_quorumPercentage);
-        
-        emit GovernanceParametersUpdated(
-            _proposalThreshold,
-            _votingDelay,
-            _votingPeriod,
-            _quorumPercentage
-        );
+        uint256 _quorumPercentage,
+        uint256 _timelockDelay
+    ) external onlyRole(GOVERNANCE_ADMIN_ROLE) {
+        proposalThreshold = _proposalThreshold;
+        votingDelay = _votingDelay;
+        votingPeriod = _votingPeriod;
+        quorumPercentage = _quorumPercentage;
+        timelockDelay = _timelockDelay;
     }
-
-    /**
-     * @dev Gets proposal description
-     * @param proposalId Proposal ID
-     * @return Description of the proposal
-     */
-    function getProposalDescription(uint256 proposalId) external view returns (string memory) {
-        return proposalDescriptions[proposalId];
-    }
-
-    /**
-     * @dev Checks if a proposal has been executed
-     * @param proposalId Proposal ID
-     * @return True if executed, false otherwise
-     */
-    function isProposalExecuted(uint256 proposalId) external view returns (bool) {
-        return proposalExecuted[proposalId];
-    }
-
-    /**
-     * @dev Gets the voting power of an address at a specific block
-     * @param account Address to check
-     * @param blockNumber Block number
-     * @return Voting power
-     */
-    function getVotes(address account, uint256 blockNumber) 
-        public 
-        view 
-        override(IGovernor, GovernorVotes) 
-        returns (uint256) 
-    {
-        return super.getVotes(account, blockNumber);
-    }
-
-    /**
-     * @dev Gets the current voting power of an address
-     * @param account Address to check
-     * @return Current voting power
-     */
-    function getCurrentVotes(address account) external view returns (uint256) {
-        return propertyToken.getVotes(account);
-    }
-
-    /**
-     * @dev Gets the past voting power of an address
-     * @param account Address to check
-     * @param blockNumber Block number
-     * @return Past voting power
-     */
-    function getPastVotes(address account, uint256 blockNumber) external view returns (uint256) {
-        return propertyToken.getPastVotes(account, blockNumber);
-    }
-
-    /**
-     * @dev Gets the total supply at a specific block
-     * @param blockNumber Block number
-     * @return Total supply
-     */
-    function getPastTotalSupply(uint256 blockNumber) external view returns (uint256) {
-        return propertyToken.getPastTotalSupply(blockNumber);
-    }
-
-    // Required overrides
-    function votingDelay()
-        public
-        view
-        override(IGovernor, GovernorSettings)
-        returns (uint256)
-    {
-        return super.votingDelay();
-    }
-
-    function votingPeriod()
-        public
-        view
-        override(IGovernor, GovernorSettings)
-        returns (uint256)
-    {
-        return super.votingPeriod();
-    }
-
-    function quorum(uint256 blockNumber)
-        public
-        view
-        override(IGovernor, GovernorVotesQuorumFraction)
-        returns (uint256)
-    {
-        return super.quorum(blockNumber);
-    }
-
-    function state(uint256 proposalId)
-        public
-        view
-        override(Governor, GovernorTimelockControl)
-        returns (ProposalState)
-    {
-        return super.state(proposalId);
-    }
-
-    function proposalThreshold()
-        public
-        view
-        override(Governor, GovernorSettings)
-        returns (uint256)
-    {
-        return super.proposalThreshold();
-    }
-
-    function _execute(
-        uint256 proposalId,
-        address[] memory targets,
-        uint256[] memory values,
-        bytes[] memory calldatas,
-        bytes32 descriptionHash
-    ) internal override(Governor, GovernorTimelockControl) {
-        super._execute(proposalId, targets, values, calldatas, descriptionHash);
-    }
-
-    function _cancel(
-        address[] memory targets,
-        uint256[] memory values,
-        string[] memory signatures,
-        bytes[] memory calldatas,
-        bytes32 descriptionHash
-    ) internal override(Governor, GovernorTimelockControl) returns (uint256) {
-        return super._cancel(targets, values, signatures, calldatas, descriptionHash);
-    }
-
-    function _executor()
-        internal
-        view
-        override(Governor, GovernorTimelockControl)
-        returns (address)
-    {
-        return super._executor();
-    }
-
-    function _authorizeUpgrade(address newImplementation)
-        internal
-        override
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {}
 }

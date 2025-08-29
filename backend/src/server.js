@@ -15,6 +15,7 @@ const propertyRoutes = require('./routes/properties');
 const userRoutes = require('./routes/users');
 const kycRoutes = require('./routes/kyc');
 const marketplaceRoutes = require('./routes/marketplace');
+const paymentRoutes = require('./routes/payments');
 const governanceRoutes = require('./routes/governance');
 const blockchainRoutes = require('./routes/blockchain');
 
@@ -94,6 +95,7 @@ app.use('/api/kyc', kycRoutes);
 app.use('/api/marketplace', marketplaceRoutes);
 app.use('/api/governance', governanceRoutes);
 app.use('/api/blockchain', blockchainRoutes);
+app.use('/api/payments', paymentRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {

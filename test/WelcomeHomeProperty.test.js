@@ -15,14 +15,33 @@ describe("Welcome Home Property System", function () {
         const KYCRegistry = await ethers.getContractFactory("KYCRegistry");
         kycRegistry = await KYCRegistry.deploy();
 
-        // Deploy PropertyToken implementation
-        const PropertyToken = await ethers.getContractFactory("PropertyToken");
-        propertyTokenImpl = await PropertyToken.deploy(
+        // Deploy AlkebuleumPropertyToken implementation
+        const AlkebuleumPropertyToken = await ethers.getContractFactory("AlkebuleumPropertyToken");
+        
+        // Create initial property info for testing
+        const initialPropertyInfo = {
+            name: "Test Property",
+            description: "Test property for unit tests",
+            location: "Test City",
+            propertyType: 0, // RESIDENTIAL
+            status: 0, // ACTIVE
+            area: 1000, // 1000 sq meters
+            latitude: 40000000, // 40.0 degrees * 1e6
+            longitude: -74000000, // -74.0 degrees * 1e6
+            valuation: 1000000 * 10**18, // 1M tokens
+            valuationSource: 0, // APPRAISAL
+            lastValuationDate: Math.floor(Date.now() / 1000),
+            propertyContractId: "TEST001",
+            transactionId: "0x0000000000000000000000000000000000000000000000000000000000000000",
+            metadataUri: "ipfs://QmTest"
+        };
+        
+        propertyTokenImpl = await AlkebuleumPropertyToken.deploy(
             "WelcomeHomeProperty",
             "WH",
             1000000 * 10**18, // 1M tokens
             kycRegistry.address,
-            owner.address
+            initialPropertyInfo
         );
 
         // Deploy PropertyFactory
@@ -60,9 +79,12 @@ describe("Welcome Home Property System", function () {
         // Deploy PropertyGovernance
         const PropertyGovernance = await ethers.getContractFactory("PropertyGovernance");
         propertyGovernance = await PropertyGovernance.deploy(
-            propertyTokenImpl.address,
-            timelockController.address,
-            owner.address
+            propertyTokenImpl.address, // governanceToken
+            1000 * 10**18, // proposalThreshold (1000 tokens)
+            1, // votingDelay (1 block)
+            50400, // votingPeriod (1 week)
+            4, // quorumPercentage (4%)
+            86400 // timelockDelay (24 hours)
         );
 
         // Setup roles
@@ -181,7 +203,7 @@ describe("Welcome Home Property System", function () {
                 }
             );
 
-            const { v, r, s } = ethers.utils.splitSignature(signature);
+            const { v, r, s } = ethers.splitSignature(signature);
             
             await propertyTokenImpl.connect(user2).permit(
                 user1.address,
@@ -216,7 +238,7 @@ describe("Welcome Home Property System", function () {
             await propertyTokenImpl.recoverERC20(propertyTokenImpl.address, 100 * 10**18);
             const balanceAfter = await propertyTokenImpl.balanceOf(owner.address);
 
-            expect(balanceAfter.sub(balanceBefore)).to.equal(100 * 10**18);
+            expect(balanceAfter - balanceBefore).to.equal(100 * 10**18);
         });
     });
 
@@ -367,7 +389,7 @@ describe("Welcome Home Property System", function () {
             );
 
             const balanceAfter = await propertyToken1.balanceOf(user2.address);
-            expect(balanceAfter.sub(balanceBefore)).to.equal(100 * 10**18);
+            expect(balanceAfter - balanceBefore).to.equal(100 * 10**18);
         });
 
         it("Should collect platform fees", async function () {
@@ -491,7 +513,7 @@ describe("Welcome Home Property System", function () {
             const targets = [propertyTokenImpl.address];
             const values = [0];
             const signatures = ["setTokenPrice(uint256)"];
-            const calldatas = [ethers.utils.defaultAbiCoder.encode(["uint256"], [150 * 10**18])];
+            const calldatas = [ethers.AbiCoder.defaultAbiCoder().encode(["uint256"], [150 * 10**18])];
             const description = "Update token price to 150";
 
             const proposalId = await propertyGovernance.connect(user1).propose(
@@ -517,7 +539,7 @@ describe("Welcome Home Property System", function () {
             const targets = [propertyTokenImpl.address];
             const values = [0];
             const signatures = ["setTokenPrice(uint256)"];
-            const calldatas = [ethers.utils.defaultAbiCoder.encode(["uint256"], [150 * 10**18])];
+            const calldatas = [ethers.AbiCoder.defaultAbiCoder().encode(["uint256"], [150 * 10**18])];
             const description = "Update token price to 150";
 
             // Should fail due to insufficient voting power
@@ -536,7 +558,7 @@ describe("Welcome Home Property System", function () {
             const targets = [propertyTokenImpl.address];
             const values = [0];
             const signatures = ["setTokenPrice(uint256)"];
-            const calldatas = [ethers.utils.defaultAbiCoder.encode(["uint256"], [150 * 10**18])];
+            const calldatas = [ethers.AbiCoder.defaultAbiCoder().encode(["uint256"], [150 * 10**18])];
             const description = "Update token price to 150";
 
             await propertyGovernance.connect(user1).propose(
@@ -559,7 +581,7 @@ describe("Welcome Home Property System", function () {
             const targets = [propertyTokenImpl.address];
             const values = [0];
             const signatures = ["setTokenPrice(uint256)"];
-            const calldatas = [ethers.utils.defaultAbiCoder.encode(["uint256"], [150 * 10**18])];
+            const calldatas = [ethers.AbiCoder.defaultAbiCoder().encode(["uint256"], [150 * 10**18])];
             const description = "Update token price to 150";
 
             await propertyGovernance.connect(user1).propose(
@@ -583,7 +605,7 @@ describe("Welcome Home Property System", function () {
                 values,
                 signatures,
                 calldatas,
-                ethers.utils.keccak256(ethers.utils.toUtf8Bytes(description))
+                ethers.keccak256(ethers.toUtf8Bytes(description))
             );
 
             // Fast forward past timelock delay
@@ -595,7 +617,7 @@ describe("Welcome Home Property System", function () {
                 values,
                 signatures,
                 calldatas,
-                ethers.utils.keccak256(ethers.utils.toUtf8Bytes(description))
+                ethers.keccak256(ethers.toUtf8Bytes(description))
             );
 
             const proposalState = await propertyGovernance.state(0);
@@ -655,7 +677,7 @@ describe("Welcome Home Property System", function () {
             const targets = [propertyToken1.address];
             const values = [0];
             const signatures = ["setTokenPrice(uint256)"];
-            const calldatas = [ethers.utils.defaultAbiCoder.encode(["uint256"], [150 * 10**18])];
+            const calldatas = [ethers.AbiCoder.defaultAbiCoder().encode(["uint256"], [150 * 10**18])];
             const description = "Increase token price to 150";
 
             await propertyGovernance.connect(user1).propose(
@@ -696,7 +718,7 @@ describe("Welcome Home Property System", function () {
             // Verify final state
             expect(await propertyToken1.balanceOf(user2.address)).to.equal(4000 * 10**18);
             expect(await marketplace.getListing(propertyToken1.address, user1.address)).to.deep.equal([
-                ethers.constants.AddressZero,
+                ethers.ZeroAddress,
                 0,
                 0,
                 false

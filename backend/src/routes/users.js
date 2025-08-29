@@ -530,4 +530,24 @@ router.delete('/:wallet_address', asyncHandler(async (req, res) => {
   }
 }));
 
+router.get('/wallet/by-email', [
+  query('email').isEmail().withMessage('Valid email required')
+], asyncHandler(async (req, res) => {
+  const { email } = req.query;
+
+  try {
+    const user = await getRow('SELECT id, kyc_status FROM users WHERE email = ? AND is_active = 1', [email]);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    const userWallet = await getRow('SELECT network, wallet_address FROM user_wallets WHERE user_id = ? ORDER BY created_at DESC LIMIT 1', [user.id]);
+
+    res.json({ success: true, data: { kyc_status: user.kyc_status, wallet: userWallet || null } });
+  } catch (error) {
+    logger.error('Fetch wallet by email failed:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch wallet' });
+  }
+}));
+
 module.exports = router;

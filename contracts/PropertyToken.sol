@@ -1,377 +1,194 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
-import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Votes.sol";
-import "@openzeppelin/contracts/access/AccessControl.sol";
-import "@openzeppelin/contracts/security/Pausable.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/utils/Counters.sol";
-import "./interfaces/IPropertyToken.sol";
-import "./interfaces/IKYCRegistry.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
 
 /**
  * @title PropertyToken
- * @dev ERC20 token representing fractional ownership of a property on Alkebuleum
- * @dev Includes governance capabilities (ERC20Votes), gasless approvals (ERC20Permit),
- *      property connection tracking, and max tokens cap
- * @dev Optimized for Alkebuleum blockchain deployment
+ * @dev Simplified ERC20 token representing fractional ownership of a property
  */
-contract PropertyToken is 
-    ERC20, 
-    ERC20Permit, 
-    ERC20Votes, 
-    AccessControl, 
-    Pausable, 
-    ReentrancyGuard,
-    IPropertyToken 
-{
-    using Counters for Counters.Counter;
-
-    bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
-    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
-    bytes32 public constant PROPERTY_MANAGER_ROLE = keccak256("PROPERTY_MANAGER_ROLE");
-    bytes32 public constant ALKEBULEUM_ADMIN_ROLE = keccak256("ALKEBULEUM_ADMIN_ROLE");
-
-    // Property details (Alkebuleum-specific)
-    string public propertyName;
-    string public propertyLocation;
-    uint256 public propertyValue;
-    string public propertyMetadataURI;
-    uint256 public maxTokens;
+contract PropertyToken is ERC20, Ownable, Pausable {
+    uint256 public immutable propertyId;
+    uint256 public constant TOTAL_SUPPLY = 1000000 * 10**18; // 1 million tokens
+    uint256 public pricePerToken = 1 ether; // 1 ETH per token initially
     
-    // Alkebuleum-specific fields
-    string public propertyType; // "residential", "commercial", "industrial", "land"
-    string public propertyStatus; // "active", "maintenance", "sold", "foreclosed"
-    uint256 public propertyArea; // in square meters
-    string public propertyCoordinates; // GPS coordinates
-    uint256 public lastValuationDate;
-    string public valuationSource; // "appraisal", "market", "automated"
+    string public metadataURI;
+    address public propertyOwner;
     
-    // Property connection tracking (from old contract)
-    address public connectedPropertyContract;
-    string public transactionID;
+    bool private _initialized;
     
-    // Token economics
-    uint256 public tokenPrice;
-    uint256 public totalTokensIssued;
-    uint256 public platformFee; // Alkebuleum platform fee (basis points)
+    event PropertyPurchased(address indexed buyer, uint256 amount, uint256 totalCost);
+    event PriceUpdated(uint256 oldPrice, uint256 newPrice);
+    event MetadataUpdated(string oldURI, string newURI);
     
-    // KYC registry reference
-    IKYCRegistry public kycRegistry;
-    
-    // Alkebuleum network identifier
-    uint256 public constant ALKEBULEUM_CHAIN_ID = 1337; // Update with actual chain ID
-    
-    // Events
-    event PropertyConnected(address indexed property, string transactionID);
-    event MaxTokensSet(uint256 newMax);
-    event TokenPriceUpdated(uint256 newPrice);
-    event TokensIssued(address indexed to, uint256 amount, uint256 totalIssued);
-    event PropertyDetailsUpdated(string propertyType, string propertyStatus, uint256 propertyArea);
-    event PlatformFeeUpdated(uint256 newFee);
-    event AlkebuleumMetadataUpdated(string metadataURI, uint256 valuationDate);
-
-    /**
-     * @dev Constructor
-     * @param _name Token name
-     * @param _symbol Token symbol
-     * @param _maxTokens Maximum number of tokens that can ever be minted
-     * @param _kycRegistry Address of the KYC registry
-     * @param _admin Admin address with DEFAULT_ADMIN_ROLE
-     */
-    constructor(
-        string memory _name,
-        string memory _symbol,
-        uint256 _maxTokens,
-        address _kycRegistry,
-        address _admin
-    ) 
-        ERC20(_name, _symbol) 
-        ERC20Permit(_name)
-    {
-        require(_maxTokens > 0, "Max tokens must be greater than 0");
-        require(_kycRegistry != address(0), "Invalid KYC registry address");
-        require(_admin != address(0), "Invalid admin address");
-        
-        maxTokens = _maxTokens;
-        kycRegistry = IKYCRegistry(_kycRegistry);
-        platformFee = 25; // 0.25% default platform fee
-        
-        _grantRole(DEFAULT_ADMIN_ROLE, _admin);
-        _grantRole(PAUSER_ROLE, _admin);
-        _grantRole(MINTER_ROLE, _admin);
-        _grantRole(PROPERTY_MANAGER_ROLE, _admin);
-        _grantRole(ALKEBULEUM_ADMIN_ROLE, _admin);
+    modifier onlyPropertyOwner() {
+        require(msg.sender == propertyOwner, "Only property owner can call this function");
+        _;
     }
-
+    
+    constructor(
+        string memory name,
+        string memory symbol,
+        uint256 _propertyId,
+        address _propertyOwner,
+        string memory _metadataURI,
+        address _admin
+    ) ERC20(name, symbol) Ownable(_admin) {
+        propertyId = _propertyId;
+        propertyOwner = _propertyOwner;
+        metadataURI = _metadataURI;
+        
+        // Mint all tokens to the property owner initially
+        _mint(_propertyOwner, TOTAL_SUPPLY);
+    }
+    
     /**
-     * @dev Initialize function for proxy/clone deployment
-     * @param _name Token name
-     * @param _symbol Token symbol
-     * @param _maxTokens Maximum number of tokens
-     * @param _kycRegistry Address of the KYC registry
-     * @param _admin Admin address
+     * @dev Initialize function for Clone pattern (called only once)
+     * @param name Token name
+     * @param symbol Token symbol
+     * @param maxTokens Maximum tokens (ignored in this simple version)
+     * @param kycRegistry KYC registry address (ignored in this simple version)
+     * @param _propertyOwner Property owner address
      */
     function initialize(
-        string memory _name,
-        string memory _symbol,
-        uint256 _maxTokens,
-        address _kycRegistry,
-        address _admin
+        string memory name,
+        string memory symbol,
+        uint256 maxTokens,
+        address kycRegistry,
+        address _propertyOwner
     ) external {
-        require(bytes(_name).length > 0, "Name required");
-        require(bytes(_symbol).length > 0, "Symbol required");
-        require(_maxTokens > 0, "Max tokens must be greater than 0");
-        require(_kycRegistry != address(0), "Invalid KYC registry address");
-        require(_admin != address(0), "Invalid admin address");
+        require(!_initialized, "Already initialized");
+        _initialized = true;
         
-        // Only allow initialization once
-        require(maxTokens == 0, "Already initialized");
+        // Set property owner
+        propertyOwner = _propertyOwner;
         
-        maxTokens = _maxTokens;
-        kycRegistry = IKYCRegistry(_kycRegistry);
-        
-        _grantRole(DEFAULT_ADMIN_ROLE, _admin);
-        _grantRole(PAUSER_ROLE, _admin);
-        _grantRole(MINTER_ROLE, _admin);
-        _grantRole(PROPERTY_MANAGER_ROLE, _admin);
-        _grantRole(ALKEBULEUM_ADMIN_ROLE, _admin);
+        // Mint all tokens to the property owner initially
+        _mint(_propertyOwner, TOTAL_SUPPLY);
     }
-
+    
     /**
-     * @dev Connects this token to a property contract and sets the transaction ID
-     * @param propertyAddress The address of the property contract
-     * @param newTransactionID The transaction ID
+     * @dev Purchase tokens with ETH
+     * @param amount Number of tokens to purchase
      */
-    function connectToProperty(address propertyAddress, string memory newTransactionID) 
-        external 
-        onlyRole(PROPERTY_MANAGER_ROLE) 
-    {
-        require(propertyAddress != address(0), "Invalid property address");
-        require(bytes(newTransactionID).length > 0, "Transaction ID required");
-        
-        connectedPropertyContract = propertyAddress;
-        transactionID = newTransactionID;
-        
-        emit PropertyConnected(propertyAddress, newTransactionID);
-    }
-
-    /**
-     * @dev Sets comprehensive property details for Alkebuleum
-     * @param _name Property name
-     * @param _location Property location
-     * @param _value Property value
-     * @param _metadataURI IPFS URI for property metadata
-     * @param _propertyType Type of property
-     * @param _propertyStatus Current status
-     * @param _propertyArea Area in square meters
-     * @param _coordinates GPS coordinates
-     */
-    function setPropertyDetails(
-        string memory _name,
-        string memory _location,
-        uint256 _value,
-        string memory _metadataURI,
-        string memory _propertyType,
-        string memory _propertyStatus,
-        uint256 _propertyArea,
-        string memory _coordinates
-    ) external onlyRole(PROPERTY_MANAGER_ROLE) {
-        propertyName = _name;
-        propertyLocation = _location;
-        propertyValue = _value;
-        propertyMetadataURI = _metadataURI;
-        propertyType = _propertyType;
-        propertyStatus = _propertyStatus;
-        propertyArea = _propertyArea;
-        propertyCoordinates = _coordinates;
-        
-        emit PropertyDetailsUpdated(_propertyType, _propertyStatus, _propertyArea);
-    }
-
-    /**
-     * @dev Updates Alkebuleum-specific metadata
-     * @param _metadataURI New metadata URI
-     * @param _valuationDate New valuation date
-     * @param _valuationSource Source of valuation
-     */
-    function updateAlkebuleumMetadata(
-        string memory _metadataURI,
-        uint256 _valuationDate,
-        string memory _valuationSource
-    ) external onlyRole(ALKEBULEUM_ADMIN_ROLE) {
-        require(bytes(_metadataURI).length > 0, "Metadata URI required");
-        require(_valuationDate > 0, "Invalid valuation date");
-        require(bytes(_valuationSource).length > 0, "Valuation source required");
-        
-        propertyMetadataURI = _metadataURI;
-        lastValuationDate = _valuationDate;
-        valuationSource = _valuationSource;
-        
-        emit AlkebuleumMetadataUpdated(_metadataURI, _valuationDate);
-    }
-
-    /**
-     * @dev Sets the token price
-     * @param _price New token price
-     */
-    function setTokenPrice(uint256 _price) external onlyRole(PROPERTY_MANAGER_ROLE) {
-        tokenPrice = _price;
-        emit TokenPriceUpdated(_price);
-    }
-
-    /**
-     * @dev Sets the platform fee for Alkebuleum
-     * @param _fee New platform fee in basis points
-     */
-    function setPlatformFee(uint256 _fee) external onlyRole(ALKEBULEUM_ADMIN_ROLE) {
-        require(_fee <= 100, "Platform fee cannot exceed 1%");
-        platformFee = _fee;
-        emit PlatformFeeUpdated(_fee);
-    }
-
-    /**
-     * @dev Issues new tokens to an address (primary offering)
-     * @param to Address to receive tokens
-     * @param amount Amount of tokens to issue
-     */
-    function issueTokens(address to, uint256 amount) 
-        external 
-        onlyRole(MINTER_ROLE) 
-        whenNotPaused 
-    {
-        require(to != address(0), "Cannot issue to zero address");
+    function purchaseTokens(uint256 amount) external payable whenNotPaused {
         require(amount > 0, "Amount must be greater than 0");
-        require(kycRegistry.isVerified(to), "Recipient must be KYC verified");
+        uint256 totalCost = amount * pricePerToken / 10**18;
+        require(msg.value >= totalCost, "Insufficient payment");
         
-        // Check max tokens cap
-        require((totalTokensIssued + amount) <= maxTokens, "Exceeds max tokens cap");
+        // Transfer tokens from property owner to buyer
+        _transfer(propertyOwner, msg.sender, amount);
         
-        totalTokensIssued += amount;
-        _mint(to, amount);
+        // Send payment to property owner
+        payable(propertyOwner).transfer(totalCost);
         
-        emit TokensIssued(to, amount, totalTokensIssued);
+        // Refund excess payment
+        if (msg.value > totalCost) {
+            payable(msg.sender).transfer(msg.value - totalCost);
+        }
+        
+        emit PropertyPurchased(msg.sender, amount, totalCost);
     }
-
+    
     /**
-     * @dev Calculates platform fee for a transaction
-     * @param amount Transaction amount
-     * @return fee The calculated platform fee
+     * @dev Update price per token (only property owner)
+     * @param newPrice New price per token in wei
      */
-    function calculatePlatformFee(uint256 amount) public view returns (uint256 fee) {
-        return (amount * platformFee) / 10000;
+    function updatePrice(uint256 newPrice) external onlyPropertyOwner {
+        require(newPrice > 0, "Price must be greater than 0");
+        uint256 oldPrice = pricePerToken;
+        pricePerToken = newPrice;
+        emit PriceUpdated(oldPrice, newPrice);
     }
-
+    
     /**
-     * @dev Pauses all token transfers
+     * @dev Update metadata URI (only property owner)
+     * @param newURI New metadata URI
      */
-    function pause() external onlyRole(PAUSER_ROLE) {
+    function updateMetadata(string memory newURI) external onlyPropertyOwner {
+        string memory oldURI = metadataURI;
+        metadataURI = newURI;
+        emit MetadataUpdated(oldURI, newURI);
+    }
+    
+    /**
+     * @dev Pause the contract (only owner)
+     */
+    function pause() external onlyOwner {
         _pause();
     }
-
+    
     /**
-     * @dev Unpauses all token transfers
+     * @dev Unpause the contract (only owner)
      */
-    function unpause() external onlyRole(PAUSER_ROLE) {
+    function unpause() external onlyOwner {
         _unpause();
     }
-
+    
     /**
-     * @dev Allows the admin to recover ERC20 tokens sent to this contract by mistake
-     * @param tokenAddress The address of the ERC20 token to recover
-     * @param tokenAmount The amount of tokens to recover
+     * @dev Get available tokens for sale
      */
-    function recoverERC20(address tokenAddress, uint256 tokenAmount) 
-        external 
-        onlyRole(DEFAULT_ADMIN_ROLE) 
-        nonReentrant 
-    {
-        require(tokenAddress != address(0), "Invalid token address");
-        require(tokenAmount > 0, "Amount must be greater than zero");
-        require(tokenAddress != address(this), "Cannot recover own tokens");
-        
-        IERC20(tokenAddress).transfer(msg.sender, tokenAmount);
+    function getAvailableTokens() external view returns (uint256) {
+        return balanceOf(propertyOwner);
     }
-
+    
     /**
-     * @dev Gets comprehensive property information for Alkebuleum
-     * @return name Property name
-     * @return location Property location
-     * @return value Property value
-     * @return metadataURI Metadata URI
-     * @return type Property type
-     * @return status Property status
-     * @return area Property area
-     * @return coordinates GPS coordinates
-     * @return valuationDate Last valuation date
-     * @return valuationSource Valuation source
+     * @dev Get total cost for purchasing a specific amount of tokens
      */
-    function getPropertyInfo() external view returns (
+    function getCost(uint256 amount) external view returns (uint256) {
+        return amount * pricePerToken / 10**18;
+    }
+    
+    /**
+     * @dev Set property details (only called during initialization)
+     */
+    function setPropertyDetails(
         string memory name,
         string memory location,
         uint256 value,
-        string memory metadataURI,
-        string memory type_,
+        string memory _metadataURI,
+        string memory propertyType,
         string memory status,
         uint256 area,
-        string memory coordinates,
-        uint256 valuationDate,
-        string memory valuationSource
-    ) {
-        return (
-            propertyName,
-            propertyLocation,
-            propertyValue,
-            propertyMetadataURI,
-            propertyType,
-            propertyStatus,
-            propertyArea,
-            propertyCoordinates,
-            lastValuationDate,
-            valuationSource
-        );
+        string memory coordinates
+    ) external {
+        require(msg.sender == owner(), "Only owner can set property details");
+        metadataURI = _metadataURI;
+        // Other details can be stored in metadata URI or emitted as events
     }
-
-    // Override functions for ERC20Votes
-    function _afterTokenTransfer(address from, address to, uint256 amount)
-        internal
-        override(ERC20, ERC20Votes)
-    {
-        super._afterTokenTransfer(from, to, amount);
+    
+    /**
+     * @dev Set token price (only owner)
+     */
+    function setTokenPrice(uint256 _pricePerToken) external onlyOwner {
+        require(_pricePerToken > 0, "Price must be greater than 0");
+        pricePerToken = _pricePerToken;
     }
-
-    function _mint(address to, uint256 amount)
-        internal
-        override(ERC20, ERC20Votes)
-    {
-        super._mint(to, amount);
+    
+    /**
+     * @dev Connect to property (placeholder for future functionality)
+     */
+    function connectToProperty(address propertyContract, string memory transactionID) external onlyOwner {
+        // Placeholder - in the future this could connect to an external property registry
     }
-
-    function _burn(address account, uint256 amount)
-        internal
-        override(ERC20, ERC20Votes)
-    {
-        super._burn(account, amount);
+    
+    /**
+     * @dev Grant role (simplified version - only owner can do anything)
+     */
+    function grantRole(bytes32 role, address account) external onlyOwner {
+        // Placeholder - simplified version
     }
-
-    // Override functions for Pausable
-    function _beforeTokenTransfer(address from, address to, uint256 amount)
-        internal
-        whenNotPaused
-        override
-    {
-        super._beforeTokenTransfer(from, to, amount);
+    
+    /**
+     * @dev Role constants (placeholders)
+     */
+    function MINTER_ROLE() external pure returns (bytes32) {
+        return keccak256("MINTER_ROLE");
     }
-
-    // Required overrides
-    function nonces(address owner)
-        public
-        view
-        override(ERC20Permit, Nonces)
-        returns (uint256)
-    {
-        return super.nonces(owner);
+    
+    function PROPERTY_MANAGER_ROLE() external pure returns (bytes32) {
+        return keccak256("PROPERTY_MANAGER_ROLE");
     }
 }

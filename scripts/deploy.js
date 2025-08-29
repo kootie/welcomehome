@@ -71,9 +71,12 @@ async function main() {
     console.log("\nDeploying PropertyGovernance...");
     const PropertyGovernance = await ethers.getContractFactory("PropertyGovernance");
     const propertyGovernance = await PropertyGovernance.deploy(
-        propertyTokenImpl.address, // propertyToken
-        timelockController.address, // timelock
-        deployer.address // admin
+        propertyTokenImpl.address, // governanceToken
+        1000 * 10**18, // proposalThreshold (1000 tokens)
+        1, // votingDelay (1 block)
+        50400, // votingPeriod (1 week)
+        4, // quorumPercentage (4%)
+        86400 // timelockDelay (24 hours)
     );
     await propertyGovernance.deployed();
     console.log("PropertyGovernance deployed to:", propertyGovernance.address);
