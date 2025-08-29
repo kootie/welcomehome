@@ -7,7 +7,6 @@ import {
   ReferralReward,
   TransactionQueueStats,
   PerformanceMetrics,
-  Priority
 } from '../types';
 import web3Service from '../services/web3.ts';
 import WalletConnection from '../components/wallet/WalletConnection.tsx';
@@ -18,21 +17,17 @@ import Card from '../components/common/Card.tsx';
 import { 
   Home, 
   TrendingUp, 
-  Wallet, 
   Bell, 
   Settings, 
   Search,
   Filter,
   Grid,
   List,
-  Plus,
   DollarSign,
   Users,
-  BarChart3,
   Activity,
   Clock,
-  CheckCircle,
-  AlertCircle
+  CheckCircle
 } from 'lucide-react';
 
 const Dashboard: React.FC = () => {
@@ -40,7 +35,7 @@ const Dashboard: React.FC = () => {
   const [properties, setProperties] = useState<Property[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [referralRewards, setReferralRewards] = useState<ReferralReward[]>([]);
+  const [, setReferralRewards] = useState<ReferralReward[]>([]);
   const [queueStats, setQueueStats] = useState<TransactionQueueStats | null>(null);
   const [performanceMetrics, setPerformanceMetrics] = useState<PerformanceMetrics | null>(null);
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
@@ -51,6 +46,7 @@ const Dashboard: React.FC = () => {
 
   useEffect(() => {
     loadDashboardData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadDashboardData = async () => {

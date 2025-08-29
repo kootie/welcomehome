@@ -35,7 +35,10 @@ const Wallet: React.FC = () => {
     }
   }
 
-  useEffect(() => { fetchWallet(); }, [email]);
+  useEffect(() => { 
+    fetchWallet(); 
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [email]);
 
   return (
     <div className="min-h-screen bg-white flex items-center justify-center px-4 py-12">

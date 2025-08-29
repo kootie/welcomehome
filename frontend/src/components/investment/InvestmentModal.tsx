@@ -7,9 +7,7 @@ import {
   DollarSign, 
   CreditCard, 
   Wallet, 
-  TrendingUp, 
   AlertTriangle,
-  CheckCircle,
   Clock,
   Info
 } from 'lucide-react';
@@ -41,6 +39,7 @@ const InvestmentModal: React.FC<InvestmentModalProps> = ({
       calculateCryptoAmount();
       estimateGasFees();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [property, investmentAmount, selectedCrypto, priority]);
 
   const calculateCryptoAmount = () => {

@@ -1,10 +1,6 @@
 import { ethers } from 'ethers';
 import { 
-  GasFeeConfig, 
   TransactionRequest, 
-  UserBalance, 
-  RateLimit, 
-  QueuedTransaction, 
   UserRate, 
   Priority, 
   OrchestratedTransaction,
